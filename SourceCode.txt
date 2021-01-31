@@ -1,0 +1,700 @@
+package com.hcl;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+//This is the entry point to my application
+@SpringBootApplication
+public class NewCapstoneApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(NewCapstoneApplication.class, args);
+	}
+}
+
+--------------------------------------
+
+package com.hcl.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import com.google.common.base.Predicate;
+
+import springfox.documentation.builders.ApiInfoBuilder;
+import springfox.documentation.service.ApiInfo;
+import springfox.documentation.spi.DocumentationType;
+import springfox.documentation.spring.web.plugins.Docket;
+import springfox.documentation.swagger2.annotations.EnableSwagger2;
+import static springfox.documentation.builders.PathSelectors.regex;
+import static com.google.common.base.Predicates.or;
+//This is my swagger config file
+@Configuration
+@EnableSwagger2
+public class SwaggerConfig {
+
+	@Bean
+	public Docket postApi() {
+		return new Docket(DocumentationType.SWAGGER_2).groupName("public-api")
+				.apiInfo(apiInfo()).select().paths(postPaths()).build();
+	}
+
+	private Predicate<String> postPaths() {
+		
+		return or(regex("/*/.*"), regex("/*/.*"));
+	}
+
+	private ApiInfo apiInfo() {
+		return new ApiInfoBuilder().title("New Capstone Project")
+				.description("Welcome to New Capstone Project")
+				.version("1.0")
+				.build();
+	}
+}
+
+---------------------------------------------------
+
+package com.hcl.controller;
+
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ui.ModelMap;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.SessionAttributes;
+import org.springframework.web.servlet.ModelAndView;
+
+import com.hcl.dao.AlbumDAO;
+import com.hcl.dao.UserDAO;
+import com.hcl.exceptions.InvalidUserException;
+import com.hcl.exceptions.PasswordConfirmationException;
+import com.hcl.model.Album;
+import com.hcl.model.User;
+import com.hcl.service.AlbumService;
+
+import lombok.val;
+//This is used as a controller for my albums REST operations
+@RestController
+@SessionAttributes("user")
+public class AlbumController {
+
+	@Autowired
+	UserDAO userDao;
+	@Autowired
+	AlbumDAO albumDao;
+	
+	@Autowired
+	AlbumService service;
+	
+	@GetMapping("/addtocart/{id}/{aid}")
+	public ModelAndView addToCart(@PathVariable("id") int id, @PathVariable("aid") int aid,
+			HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		session.setAttribute("user", user);
+		Album album = albumDao.findById(aid).get();
+		user.getUserCart().add(album);
+		session.setAttribute("userCart", user.getUserCart());
+		user.setTotal(user.getTotal() + album.getPrice());
+		userDao.save(user);
+		return new ModelAndView("/usercart");
+	}
+	@GetMapping("/usercart/{id}")
+	public ModelAndView showCart(@PathVariable("id") int id, HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		user = userDao.findById(id).get();
+		session.setAttribute("user", user);
+		session.setAttribute("cart", user.getUserCart());
+		userDao.save(user);
+		return new ModelAndView("/usercart");
+	}
+	@GetMapping("/checkout/{id}")
+	public ModelAndView showCheckout(@PathVariable("id") int id, HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		user = userDao.findById(id).get();
+		session.setAttribute("user", user);
+		session.setAttribute("cart", user.getUserCart());
+		userDao.save(user);
+		return new ModelAndView("/checkout");
+	}
+	@GetMapping("/confirmation/{id}")
+	public ModelAndView showConfirmation(@PathVariable("id") int id, HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		user = userDao.findById(id).get();
+		user.getUserCart().clear();
+		user.setTotal(0.00);
+		session.setAttribute("user", user);
+		session.setAttribute("cart", user.getUserCart());
+		userDao.save(user);
+		return new ModelAndView("/confirmation");
+	}
+	
+	@GetMapping("/deletealbum/{id}")
+	public ModelAndView returnTasks(@PathVariable("id") int Id) {
+		albumDao.deleteById(Id);
+		return new ModelAndView("redirect:/list-albums");
+	}
+	
+	@GetMapping("{name}/{id}/managerhome")
+	public ModelAndView showManagerHome(@PathVariable("name") String name, @PathVariable("id") int id,
+			HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		session.setAttribute("user", user);
+		user = userDao.findById(id).get();
+		List<Album> userCart = user.getUserCart();
+		session.setAttribute("userCart", userCart);
+		return new ModelAndView("/managerhome");
+	}
+	
+	@GetMapping("{name}/{id}/userhome")
+	public ModelAndView showUserHome(@PathVariable("name") String name, @PathVariable("id") int id,
+			HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		session.setAttribute("user", user);
+		user = userDao.findById(id).get();
+		List<Album> userCart = user.getUserCart();
+		session.setAttribute("userCart", userCart);
+		return new ModelAndView("/userhome");
+	}
+
+	
+	@GetMapping("/list-albums")
+	public ModelAndView showAlbums(HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		session.setAttribute("user", user);
+		session.setAttribute("albums", service.retrieveAlbums());
+		return new ModelAndView ("/list-albums");
+	}
+	@GetMapping("/list-albums2")
+	public ModelAndView showAlbums2(HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		session.setAttribute("user", user);
+		session.setAttribute("albums", service.retrieveAlbums());
+		return new ModelAndView ("/list-albums2");
+	}
+	
+	@GetMapping("/editalbum/{id}")
+	public ModelAndView showEditAlbum(@PathVariable("id") int id, HttpServletRequest request, ModelMap model) {
+		HttpSession session = request.getSession();
+		User user = (User) model.get("user");
+		session.setAttribute("user", user);
+		Album album = albumDao.findById(id).get();
+		return new ModelAndView("/editalbum").addObject(album);
+	}
+
+	@PostMapping("/editalbum/{id}")
+	public ModelAndView editAlbum(@PathVariable("id") int id,
+			@RequestParam("cover") String cover, @RequestParam("title") String
+			  title,
+			  @RequestParam("artist") String artist, @RequestParam("genre") String
+			  genre,
+			  @RequestParam("price") Double price, @RequestParam("inventory") Integer inventory) {
+		
+		String message=null;
+		
+		message = "Successfully updated Product";
+		Album album= albumDao.findById(id).get();
+		album.setCover(cover);
+		album.setTitle(title);
+		album.setArtist(artist);
+		album.setGenre(genre);
+		album.setPrice(price);
+		album.setInventory(inventory);
+		albumDao.save(album);
+		return new ModelAndView("redirect:/list-albums").addObject("message", message);
+	}
+
+	 
+	  @GetMapping("/addalbum")
+		public ModelAndView showAddAlbum(HttpServletRequest request, ModelMap model) {
+		  HttpSession session = request.getSession();
+			User user = (User) model.get("user");
+			session.setAttribute("user", user);
+			return new ModelAndView("add-album");
+		}
+
+		@PostMapping("/addalbum")
+		public ModelAndView addalbum(
+				  @RequestParam("cover") String cover, @RequestParam("title") String
+				  title,
+				  @RequestParam("artist") String artist, @RequestParam("genre") String
+				  genre,
+				  @RequestParam("price") Double price, @RequestParam("inventory") Integer inventory 
+				  ) {
+					String message = null;
+					
+					message = "Successfully Added Product";
+					Album album = new Album();
+					album.setCover(cover);
+					album.setTitle(title);
+					album.setArtist(artist);
+					album.setGenre(genre);
+					album.setPrice(price);
+					album.setInventory(inventory);
+					albumDao.save(album);
+			return new ModelAndView("add-album").addObject("message", message);
+		}
+		
+		
+	@GetMapping("/{id}/deletealbum/{aid}")
+	public ModelAndView returnAlbums(@PathVariable("id") int id, @PathVariable("aid") int aid, HttpServletRequest request, ModelMap model ) {
+		HttpSession session = request.getSession();
+		User user = new User();
+		user = userDao.findById(id).get();
+		session.setAttribute("user", user);
+		user.getUserCart().clear();
+		user.setTotal(0.00);
+		session.setAttribute("userCart", user.getUserCart());
+		userDao.save(user);
+		return new ModelAndView("/usercart");
+	}
+}
+
+---------------------------------------------------
+
+package com.hcl.controller;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ui.ModelMap;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.SessionAttributes;
+import org.springframework.web.servlet.ModelAndView;
+
+import com.hcl.dao.UserDAO;
+import com.hcl.exceptions.IncorrectDetailsException;
+import com.hcl.exceptions.InvalidUserException;
+import com.hcl.exceptions.PasswordConfirmationException;
+import com.hcl.model.User;
+import com.hcl.service.Authentication;
+
+import lombok.val;
+//This is used as a controller for my login REST operations
+@RestController
+@SessionAttributes("user")
+public class LoginController {
+
+	@Autowired
+	UserDAO userDao;
+
+	@Autowired
+	Authentication auth;
+	
+	@GetMapping("/index")
+	public ModelAndView showIndex() {
+		return new ModelAndView("index");
+	}
+	
+	@PostMapping("/index")
+	public ModelAndView Index() {
+		return new ModelAndView("index");
+	}
+	
+
+	@GetMapping("/register")
+	public ModelAndView showRegister() {
+		return new ModelAndView("registration");
+	}
+
+	@PostMapping("/register")
+	public ModelAndView register(@RequestParam("name") String name,
+			@RequestParam("confirmation") String confirmation,
+			@RequestParam("password") String password,
+			@RequestParam("billingStreetAddress1") String billingStreetAddress1,
+			@RequestParam("billingStreetAddress2") String billingStreetAddress2,
+			@RequestParam("billingCity") String billingCity,
+			@RequestParam("billingState") String billingState,
+			@RequestParam("billingZipcode") String billingZipcode,
+			@RequestParam("shippingStreetAddress1") String shippingStreetAddress1,
+			@RequestParam("shippingStreetAddress2") String shippingStreetAddress2,
+			@RequestParam("shippingCity") String shippingCity,
+			@RequestParam("shippingState") String shippingState,
+			@RequestParam("shippingZipcode") String shippingZipcode) {
+
+		val isUnique = new AtomicBoolean(true);
+		String message = null;
+
+		try {
+			userDao.findOneByNameAndPassword(name.toLowerCase(), password).ifPresent(u -> isUnique.set(false));
+
+			if (!password.equals(confirmation)) {
+				throw new PasswordConfirmationException("Password and Confirmation does not match");
+			} else if (!isUnique.get()) {
+				throw new InvalidUserException("Username is already taken");
+			} else {
+				message = "Successfully Registered";
+				User user = new User();
+				user.setName(name.toLowerCase());
+				user.setPassword(password);
+				user.setBillingStreetAddress1(billingStreetAddress1);
+				user.setBillingStreetAddress2(billingStreetAddress2);
+				user.setBillingCity(billingCity);
+				user.setBillingState(billingState);
+				user.setBillingZipcode(billingZipcode);
+				user.setShippingStreetAddress1(shippingStreetAddress1);
+				user.setShippingStreetAddress2(shippingStreetAddress2);
+				user.setShippingCity(shippingCity);
+				user.setShippingState(shippingState);
+				user.setShippingZipcode(shippingZipcode);
+				userDao.save(user);
+			}
+		} catch (InvalidUserException | PasswordConfirmationException e) {
+			message = e.getMessage();
+		}
+		return new ModelAndView("registration").addObject("message", message);
+	}
+
+	@GetMapping("/login")
+	public ModelAndView showLogin() {
+		return new ModelAndView("login");
+	}
+
+	@PostMapping("/login")
+	public ModelAndView login(ModelMap model, @RequestParam("name") String name,
+			@RequestParam("password") String password, HttpServletRequest request) {
+		boolean isValid = auth.authenticate(name, password);
+
+		try {
+		if(auth.getCurrentUser().getId() == 1) {
+			model.put("user", auth.getCurrentUser());
+			HttpSession session = request.getSession();
+			session.setAttribute("user", auth.getCurrentUser());
+			return new ModelAndView("redirect:/" + auth.getCurrentUser().getName() + "/"+ auth.getCurrentUser().getId() + "/managerhome");
+		}
+			else if (isValid) {
+				model.put("user", auth.getCurrentUser());
+				HttpSession session = request.getSession();
+				session.setAttribute("user", auth.getCurrentUser());
+				return new ModelAndView("redirect:/" + auth.getCurrentUser().getName() + "/"+ auth.getCurrentUser().getId() + "/userhome");
+			} else {
+				throw new IncorrectDetailsException("Invalid Credentials");
+			}
+		} catch (IncorrectDetailsException e) {
+			HttpSession session = request.getSession();
+			session.setAttribute("message", e.getMessage());
+			return new ModelAndView("login");
+		}
+	}
+
+	@GetMapping("/logout")
+	public ModelAndView signOut(ModelMap model, HttpServletRequest request) {
+		model.put("user", null);
+		auth.logout();
+		HttpSession session = request.getSession();
+		session.setAttribute("user", null);
+		session.invalidate();
+		return new ModelAndView("redirect:/login");
+	}
+
+}
+
+
+--------------------------------------------------------------------------------
+
+package com.hcl.dao;
+
+
+import org.springframework.data.repository.CrudRepository;
+
+import com.hcl.model.Album;
+
+//This interface is used as a repository for Album CRUD operations
+public interface AlbumDAO extends CrudRepository<Album, Integer> {
+		
+}
+
+--------------------------------
+
+package com.hcl.dao;
+
+import java.util.Optional;
+
+import org.springframework.data.repository.CrudRepository;
+
+import com.hcl.model.User;
+
+//This interface is used as a repository for User CRUD operations
+public interface UserDAO extends CrudRepository<User, Integer> {
+	
+	public Optional<User> findOneByNameAndPassword(String name, String password);
+
+	
+}
+
+--------------------------------
+
+package com.hcl.exceptions;
+
+//This is used as a exception for incorrect details
+@SuppressWarnings("serial")
+public class IncorrectDetailsException extends Exception {
+	public IncorrectDetailsException(String message) {
+		super(message);
+	}
+}
+
+-----------------------------
+
+package com.hcl.exceptions;
+
+//This is used as an exception for invalid user login
+@SuppressWarnings("serial")
+public class InvalidUserException extends Exception {
+
+	public InvalidUserException(String message) {
+		super(message);
+	}
+}
+
+-----------------------
+
+package com.hcl.exceptions;
+
+//This is used as a exception for password confirmation
+@SuppressWarnings("serial")
+public class PasswordConfirmationException extends Exception {
+	public PasswordConfirmationException(String message) {
+		super(message);
+	}
+}
+
+-----------------------
+
+package com.hcl.model;
+
+
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.ManyToOne;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+//This is used as an entity class for my Album's
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Entity
+public class Album {
+	@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+	private int id;
+	private String cover;
+	private String title;
+	private String artist;
+	private String genre;
+	private Double price;
+	private Integer inventory;
+	@ManyToOne(fetch = FetchType.EAGER)
+	@ToString.Exclude
+	private User user;
+	
+	public Album(String cover, String title, String artist, String genre, Double price, Integer inventory) {
+		super();
+		this.cover = cover;
+		this.title = title;
+		this.artist = artist;
+		this.genre = genre;
+		this.price = price;
+		this.inventory = inventory;
+	}
+	
+	
+	
+}
+
+
+----------------------------
+
+package com.hcl.model;
+
+import java.util.List;
+
+import javax.persistence.CascadeType;
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.OneToMany;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+//This is used as an entity class for my User's
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Entity
+public class User {
+	@Id
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	private int id;
+	private String name;
+	private String password;
+	private double total=0.00;
+	private String shippingStreetAddress1;
+	private String shippingStreetAddress2;
+	private String shippingCity;
+	private String shippingState;
+	private String shippingZipcode;
+	private String billingStreetAddress1;
+	private String billingStreetAddress2;
+	private String billingCity;
+	private String billingState;
+	private String billingZipcode;
+	@OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+	private List<Album> userCart;
+	
+
+}
+
+
+------------------------------------------
+
+package com.hcl.service;
+
+import com.hcl.model.Album;
+//This interface is used for my album operations
+public interface AlbumInterface {
+	
+	public static void retrieveAlbums(){
+		
+	}
+	
+	public static void addAlbum(String cover, String title, String artist, String genre,
+			  Double price, Integer inventory) {
+	}
+			  
+			  
+
+	public static void deleteAlbum(int id) {
+		
+	}
+}
+
+-----------------------------------------------
+
+package com.hcl.service;
+
+import java.util.Date;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.hcl.dao.AlbumDAO;
+import com.hcl.dao.UserDAO;
+import com.hcl.model.Album;
+import com.hcl.model.User;
+
+import lombok.Data;
+import lombok.val;
+//This class is used for my album service functions
+@Data
+@Service
+public class AlbumService implements AlbumInterface {
+
+
+	@Autowired
+	AlbumDAO albumDao;
+
+	 public List<Album> retrieveAlbums() {
+	        return (List<Album>) albumDao.findAll();
+	    }
+
+
+		
+	 public void addAlbum(String cover, String title, String artist, String genre,
+		 Double price, Integer inventory) { albumDao.save(new Album(cover, title,
+		 artist, genre, price, inventory));
+		 }
+		 
+
+	 public void deleteAlbum(int id) {
+	        albumDao.deleteById(id);
+	    }
+	
+
+}
+------------------------------------------
+
+package com.hcl.service;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.hcl.dao.UserDAO;
+import com.hcl.model.User;
+
+import lombok.Data;
+import lombok.val;
+//This class is used for my users service functions
+@Data
+@Service
+public class Authentication implements AuthenticationInterface {
+
+	private User currentUser = null;
+
+	@Autowired
+	UserDAO userDao;
+
+	@Override
+	public boolean authenticate(String userName, String password) {
+		val validUser = new AtomicBoolean(false);
+		userDao.findOneByNameAndPassword(userName, password).ifPresent(u -> {
+			setCurrentUser(u);
+			validUser.set(true);
+		});
+		return validUser.get();
+	}
+
+	@Override
+	public void logout() {
+		setCurrentUser(null);
+	}
+}
+
+------------------------------------------
+
+package com.hcl.service;
+//This interface is used for my user operations
+public interface AuthenticationInterface {
+	
+	public boolean authenticate(String userName, String password);
+	
+	public void logout();
+}
